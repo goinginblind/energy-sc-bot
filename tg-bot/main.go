@@ -18,7 +18,6 @@ const (
 	StateAwaitingOTP            = "awaiting_otp"
 	StateLoggedIn               = "logged_in"
 	StateGeneralInquiry         = "general_inquiry"
-	StateAwaitingAgentIssuePre  = "awaiting_agent_issue_pre"
 	StateAwaitingAgentIssuePost = "awaiting_agent_issue_post"
 	StateAgentChat              = "agent_chat"
 )
@@ -55,6 +54,20 @@ var (
 			tgbotapi.NewInlineKeyboardButtonData("🧑‍💼 Связаться с оператором", "bill_agent"),
 		),
 	)
+
+	// Инлайн кнопка для выхода из режима РАГ-запросов
+	generalInquiryKeyboard = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏁 Завершить диалог", "end_general_inquiry"),
+		),
+	)
+
+	// Инлайн кнопка для выхода из чата с агентом
+	agentChatKeyboard = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🏁 Завершить чат", "end_agent_chat"),
+		),
+	)
 )
 
 func main() {
@@ -89,11 +102,11 @@ func main() {
 		var chatID int64
 		var userID int64
 		var text string
+		var isCallback bool
 
-		isCallback := update.CallbackQuery != nil
-
-		if isCallback {
+		if update.CallbackQuery != nil {
 			// Обработка нажатий на инлайн клавиатуру
+			isCallback = true
 			callback := update.CallbackQuery
 			chatID = callback.Message.Chat.ID
 			userID = callback.From.ID
@@ -101,7 +114,6 @@ func main() {
 
 			// Ответ, он нужен чтобы кнопка не переливалась (состояние загрузки)
 			bot.Request(tgbotapi.NewCallback(callback.ID, ""))
-
 		} else {
 			// Обычные сообщения, без клавиатур == тупа текст
 			chatID = update.Message.Chat.ID
@@ -118,6 +130,24 @@ func main() {
 			continue
 		}
 
+		// Глобальный обработчик /start, который учитывает текущее состояние
+		if text == "/start" {
+			// Проверяем, залогинен ли юзер, с помощью нашего нового флага
+			loginStatus, _ := store.GetUserData(ctx, userID, "logged_in")
+			if loginStatus == "true" {
+				// Если да, то /start просто возвращает его в меню аккаунта
+				store.SetUserState(ctx, userID, StateLoggedIn)
+				msg := tgbotapi.NewMessage(chatID, "Вы в своем аккаунте. Чем могу помочь?")
+				msg.ReplyMarkup = loggedInKeyboard
+				bot.Send(msg)
+			} else {
+				// В любом другом случае /start возвращает в самое начало
+				store.SetUserState(ctx, userID, StateStart)
+				handleStartState(ctx, bot, store, chatID, userID, text)
+			}
+			continue
+		}
+
 		// Махина для обработки стейта
 		switch userState {
 		case StateStart:
@@ -129,21 +159,17 @@ func main() {
 		case StateLoggedIn:
 			handleLoggedInState(ctx, bot, store, chatID, userID, text, isCallback)
 		case StateGeneralInquiry:
-			handleGeneralInquiryState(ctx, bot, store, chatID, userID, text)
-		case StateAwaitingAgentIssuePre, StateAwaitingAgentIssuePost:
+			handleGeneralInquiryState(ctx, bot, store, chatID, userID, text, isCallback)
+		case StateAwaitingAgentIssuePost:
 			handleAgentIssue(ctx, bot, store, chatID, userID, text)
 		case StateAgentChat:
-			handleAgentChat(ctx, bot, chatID, text)
+			handleAgentChat(ctx, bot, store, chatID, userID, text, isCallback)
 		default:
-			if text == "/start" {
-				handleStartState(ctx, bot, store, chatID, userID, text)
-			} else {
-				// Незнакомый стейт = ошибка, но такого быть не должно
-				msg := tgbotapi.NewMessage(chatID, "Произошла ошибка. Давайте начнем сначала.")
-				msg.ReplyMarkup = welcomeKeyboard
-				bot.Send(msg)
-				store.SetUserState(ctx, userID, StateStart)
-			}
+			// Незнакомый стейт = ошибка, но такого быть не должно
+			store.SetUserState(ctx, userID, StateStart)
+			msg := tgbotapi.NewMessage(chatID, "Произошла ошибка. Давайте начнем сначала.")
+			msg.ReplyMarkup = welcomeKeyboard
+			bot.Send(msg)
 		}
 	}
 }
@@ -158,12 +184,16 @@ func handleStartState(ctx context.Context, bot *tgbotapi.BotAPI, store Store, ch
 		bot.Send(msg)
 	case "🔎 Общий запрос":
 		store.SetUserState(ctx, userID, StateGeneralInquiry)
-		msg := tgbotapi.NewMessage(chatID, "Вы можете задать любой общий вопрос. Я постараюсь на него ответить.\n\nИли вы можете войти в свой аккаунт для персональных опций.")
+		msg := tgbotapi.NewMessage(chatID, "Вы в режиме общего запроса. Просто напишите свой вопрос. Чтобы выйти, используйте кнопку ниже или команду /start.")
 		bot.Send(msg)
-	default:
+	case "/start":
 		msg := tgbotapi.NewMessage(chatID, "Здравствуйте! Я ваш виртуальный помощник. Чем могу помочь?")
 		msg.ReplyMarkup = welcomeKeyboard
 		bot.Send(msg)
+	default:
+		// Если юзер сразу пишет вопрос, переходим в режим РАГ
+		store.SetUserState(ctx, userID, StateGeneralInquiry)
+		handleGeneralInquiryState(ctx, bot, store, chatID, userID, text, false)
 	}
 }
 
@@ -194,11 +224,13 @@ func handleAwaitingOTP(ctx context.Context, bot *tgbotapi.BotAPI, store Store, c
 		// отп верный
 		store.ClearUserData(ctx, userID)
 		store.SetUserState(ctx, userID, StateLoggedIn)
+		// **FIX: Устанавливаем флаг, что пользователь залогинен**
+		store.SetUserData(ctx, userID, "logged_in", "true")
 
 		// TODO: тут нужно добавить апи второго data-сервиса, где мы имитируем БД реальной конторы с пользовательскими данными
 		userName := "Пользователь"
 
-		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Вход выполнен!\n\nДобро пожаловать, %s!", userName))
+		msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("✅ Вход выполнен!\n\nДобро пожаловать, %s!", userName))
 		msg.ReplyMarkup = loggedInKeyboard
 		bot.Send(msg)
 	} else {
@@ -239,8 +271,10 @@ func handleLoggedInState(ctx context.Context, bot *tgbotapi.BotAPI, store Store,
 		bot.Send(tgbotapi.NewMessage(chatID, "Пожалуйста, опишите вашу проблему. Агент поддержки скоро с вами свяжется."))
 	case "❓ Задать общий вопрос":
 		store.SetUserState(ctx, userID, StateGeneralInquiry)
-		bot.Send(tgbotapi.NewMessage(chatID, "Вы можете задать любой общий вопрос. Чтобы вернуться в меню аккаунта, нажмите /start."))
+		bot.Send(tgbotapi.NewMessage(chatID, "Вы можете задать любой общий вопрос. Чтобы вернуться в меню аккаунта, используйте кнопку ниже или команду /start."))
 	case "🚪 Выход", "/logout":
+		// **FIX: Очищаем все данные пользователя при выходе, включая флаг "logged_in"**
+		store.ClearUserData(ctx, userID)
 		store.SetUserState(ctx, userID, StateStart)
 		msg := tgbotapi.NewMessage(chatID, "Вы успешно вышли из системы.")
 		msg.ReplyMarkup = welcomeKeyboard
@@ -251,12 +285,30 @@ func handleLoggedInState(ctx context.Context, bot *tgbotapi.BotAPI, store Store,
 }
 
 // Общие вопросы без херни и логинов (Антоха?)
-func handleGeneralInquiryState(ctx context.Context, bot *tgbotapi.BotAPI, store Store, chatID, userID int64, text string) {
-	if text == "/start" {
+func handleGeneralInquiryState(ctx context.Context, bot *tgbotapi.BotAPI, store Store, chatID, userID int64, text string, isCallback bool) {
+	// **FIX: Этот блок теперь проверяет, был ли юзер залогинен**
+	if isCallback && text == "end_general_inquiry" {
+		loginStatus, _ := store.GetUserData(ctx, userID, "logged_in")
+		if loginStatus == "true" {
+			// Если был залогинен, возвращаем в меню аккаунта
+			store.SetUserState(ctx, userID, StateLoggedIn)
+			msg := tgbotapi.NewMessage(chatID, "Диалог завершен. Возвращаемся в меню вашего аккаунта.")
+			msg.ReplyMarkup = loggedInKeyboard
+			bot.Send(msg)
+		} else {
+			// Если не был, возвращаем в главное меню
+			store.SetUserState(ctx, userID, StateStart)
+			msg := tgbotapi.NewMessage(chatID, "Диалог завершен. Возвращаемся в главное меню.")
+			msg.ReplyMarkup = welcomeKeyboard
+			bot.Send(msg)
+		}
+		return
+	}
+
+	// Не даем командам с клавиатуры уходить в РАГ
+	if !isCallback && (text == "🔎 Общий запрос" || text == "🔑 Вход") {
 		store.SetUserState(ctx, userID, StateStart)
-		msg := tgbotapi.NewMessage(chatID, "Возвращаемся в главное меню...")
-		msg.ReplyMarkup = welcomeKeyboard
-		bot.Send(msg)
+		handleStartState(ctx, bot, store, chatID, userID, text)
 		return
 	}
 
@@ -264,8 +316,9 @@ func handleGeneralInquiryState(ctx context.Context, bot *tgbotapi.BotAPI, store 
 	log.Printf("STUB: RAG query from user %d: %s", userID, text)
 	ragAnswer := "Это мог бы быть ответ, сгенерированный RAG-моделью, но бот пока так не умеет (я так и не начал gRPC штуку)."
 
-	bot.Send(tgbotapi.NewMessage(chatID, ragAnswer))
-	bot.Send(tgbotapi.NewMessage(chatID, "Могу ли я помочь чем-то еще? Вы всегда можете вернуться в главное меню с помощью /start."))
+	msg := tgbotapi.NewMessage(chatID, ragAnswer)
+	msg.ReplyMarkup = generalInquiryKeyboard
+	bot.Send(msg)
 }
 
 // Когда бот ждет описания проблемы для передачи мяясному мешку (службе п.)
@@ -274,26 +327,37 @@ func handleAgentIssue(ctx context.Context, bot *tgbotapi.BotAPI, store Store, ch
 	log.Printf("STUB: Creating support ticket for user %d. Issue: %s", userID, text)
 
 	store.SetUserState(ctx, userID, StateAgentChat)
-	bot.Send(tgbotapi.NewMessage(chatID, "Спасибо! Ваше обращение передано агенту. Вы вошли в режим чата с поддержкой. Все последующие сообщения будут направлены агенту.\n\nЧтобы завершить чат, отправьте команду /endchat."))
+	msg := tgbotapi.NewMessage(chatID, "Спасибо! Ваше обращение передано агенту. Вы вошли в режим чата с поддержкой. Все последующие сообщения будут направлены агенту.\n\nЧтобы завершить чат, используйте кнопку ниже.")
+	msg.ReplyMarkup = agentChatKeyboard
+	bot.Send(msg)
 }
 
 // Вот наш активный чат с поддержкой
-func handleAgentChat(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64, text string) {
-	if text == "/endchat" {
+func handleAgentChat(ctx context.Context, bot *tgbotapi.BotAPI, store Store, chatID, userID int64, text string, isCallback bool) {
+	if isCallback && text == "end_agent_chat" {
 		// Тут надо бы передать поддержке что чат завершили (но по-моему оверкилл)
-		bot.Send(tgbotapi.NewMessage(chatID, "Чат с агентом завершен. Возвращаемся в главное меню."))
-		// И отправка юзера в старт меню потому что я не знаю что делать ещё
-		msg := tgbotapi.NewMessage(chatID, "Чем я могу помочь?")
-		msg.ReplyMarkup = welcomeKeyboard
-		bot.Send(msg)
+		bot.Send(tgbotapi.NewMessage(chatID, "Чат с агентом завершен. Возвращаемся в меню."))
+
+		// Проверяем, был ли юзер залогинен, чтобы вернуть его в правильное меню
+		loginStatus, _ := store.GetUserData(ctx, userID, "logged_in")
+		if loginStatus == "true" {
+			store.SetUserState(ctx, userID, StateLoggedIn)
+			msg := tgbotapi.NewMessage(chatID, "Чем я могу помочь?")
+			msg.ReplyMarkup = loggedInKeyboard
+			bot.Send(msg)
+		} else {
+			// Этот случай теоретически невозможен по текущей логике, но для надежности
+			store.SetUserState(ctx, userID, StateStart)
+			msg := tgbotapi.NewMessage(chatID, "Чем я могу помочь?")
+			msg.ReplyMarkup = welcomeKeyboard
+			bot.Send(msg)
+		}
 		return
 	}
 
-	// TODO: передача сообщения в чат поддержки, это вообще в теории можно сделать через бота, но нужно тогда несколько
-	// типов юзеров, а это черезчур сейчас
-	// либо в теории это мог бы быть отдельный веб-апп, либо внешний серврер
-	log.Printf("STUB: Forwarding message to agent from chat %d: %s", chatID, text)
-	// И по-хорошему юзеру бы сообщить, что его сообщение передано в поддержку реальному человеку (скорее всего юзер зол и
-	// был бы рад увидеть что ему наконец-то поможет не бот)
-	bot.Send(tgbotapi.NewMessage(chatID, "Ваше сообщение передано работнику службы поддержки."))
+	// Если это не коллбэк, значит это сообщение для агента
+	if !isCallback {
+		// TODO: передача сообщения в чат поддержки...
+		log.Printf("STUB: Forwarding message to agent from chat %d: %s", chatID, text)
+	}
 }
