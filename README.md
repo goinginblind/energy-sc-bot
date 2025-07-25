@@ -34,9 +34,9 @@
 
 ## Сервисы
 
-- `tg-bot/` — исходники Telegram-бота (Go)
-- `rag-service/` — исходники RAG-сервиса (Python)
-- `data/` — исходники API персональных данных (Go)
+- [`tg-bot/`](tg-bot/README.md) — исходники Telegram-бота (Go)
+- [`rag-service/`](rag-service/) — исходники RAG-сервиса (Python)
+- [`data/`](data/) — исходники API персональных данных (Go)
 
 ## Пример переменных окружения для Telegram Bot
 
