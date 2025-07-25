@@ -64,11 +64,6 @@ docker build -t energy-sc-bot tg-bot/
 docker run --env-file tg-bot/.env energy-sc-bot
 ```
 
-## Документация gRPC
-
-- Протокол описан в [`tg-bot/proto/rag.proto`](tg-bot/proto/rag.proto)
-- Клиент реализован в [`tg-bot/internal/client/grpc_client.go`](tg-bot/internal/client/grpc_client.go)
-
 ## Лицензия
 
 MIT
