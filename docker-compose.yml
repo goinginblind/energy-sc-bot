@@ -1,11 +1,64 @@
 services:
   bot:
     build: ./tg-bot
-    env_file: .env
+    env_file: ./tg-bot/.env
     depends_on:
-      - redis
+      rag:
+        condition: service_healthy
+      personal-data-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
 
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    networks:
+      - backend
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rag:
+    build: ./rag
+    env_file: ./rag/.env
+    ports:
+      - "50051:50051"  # gRPC exposed
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 50051 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  personal-data-api:
+    build: ./personal-data-api
+    env_file: ./personal-data-api/.env
+    ports:
+      - "8080:8080"
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  redis-data:

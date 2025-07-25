@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package rag;
 
-option go_package = "ragpb";
+option go_package = "/ragpb";
 
 
 service RAGService {
