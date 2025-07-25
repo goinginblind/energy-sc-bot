@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package rag;
+
+option go_package = "ragpb";
+
+
+service RAGService {
+  // Главный энтри поинт
+  rpc GetAnswerToQuery(AnswerRequest) returns (AnswerResponse);
+
+  // Классификация запроса пользователя
+  rpc ClassifyQuery(ClassifyRequest) returns (ClassifyResponse);
+
+  // Улучшаетль промпта
+  rpc HumanQueryToPrompt(HumanQueryRequest) returns (HumanQueryResponse);
+}
+
+message AnswerRequest {
+  string query = 1;
+  string history = 2;
+  string acc_data = 3;
+  string label = 4;
+  string face = 5; // "физических лиц" или "юридических лиц", желательно прямо в такой форме
+}
+
+message AnswerResponse {
+  string answer = 1;
+}
+
+message ClassifyRequest {
+  string query = 1;
+}
+
+message ClassifyResponse {
+  string label = 1;
+}
+
+message HumanQueryRequest {
+  string query = 1;
+}
+
+message HumanQueryResponse {
+  string rephrased_query = 1;
+}
