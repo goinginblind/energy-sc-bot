@@ -1,36 +1,62 @@
 # Go Telegram Bot
 
-Простой микросервис Telegram-бота для Energy SC Bot.
+Микросервис Telegram-бота для Energy SC Bot.
 
 ## Описание
 
-Этот сервис отвечает за взаимодействие с пользователями Telegram:
+Этот сервис:
 - Сохраняет последние 10 сообщений каждого пользователя в Redis
-- Управляет логикой диалога
+- Управляет логикой диалога через юзер стейты
+- Поддерживает вход по OTP (пока очень так себе)
+- Интегрируется с внешним RAG-сервисом через gRPC (см. proto/rag.proto)
+- Легко расширяется для других хранилищ (через интерфейс Store)
 
 ## TODO
-- [x] Redis (и сделать легко заменяемым через интерфейс)
-- [x] Докерфайл
+- [x] Redis логер юзер стейта и юзер истории сообщений
+- [ ] Dockerfile (multi-stage)
 - [x] Поддержка `/start`
-- [x] Придумать обработку Физлица/Юрлица (её достаем из лк, надо поменять промпт в раге)
-- [x] Продумать как будет выглядеть воркфлоу текст сообщений и кнопок вместе (внизу есть, осталось сделать)
-- [ ] Заменить стандартный логгер на структурированный (Zap)
-- [ ] Наладить общение с сервисом ЛК через REST API и с РАГом через gRPC
+- [x] Обработка Физлица/Юрлица (достаем из ЛК, меняем промпт в RAG)
+- [x] Воркфлоу текстовых сообщений и кнопок
+- [x] gRPC клиент для RAG-сервиса (но нужно в хэндлерах самого бота наладить парсинг)
+- [ ] Структурированный логгер (Zap вместо стандартного)
+- [ ] REST API для интеграции с сервисом ЛК (то есть ещё этот клиент нужно добить)
 
-Воркфлоу работы:
+## Воркфлоу работы (немного не так по факту, но близко):
 [![](https://mermaid.ink/img/pako:eNqlV21P21YU_iuepUqtFFh4SQr5sGoa2z5Nq6Z-WpgsLzHBWmyntrOOYSQI614EGmuFtEpby7pJ-xwooaEQ-Av3_qM9517bcfySjg1E63t973POfc45z7neVBtO01BrasvVO-vKg5VVW8HPrVsKe8Gu-TYbsFP8XeBvxIb8QOG77DWGV-xErvR83fVv32bPWZ__wPr06s4d-eqR0W44lqFZXqvOjoA1ZCdswHt8h_fwNGSDGlk55j_h-VwBbl-YvOI7CmYu2FBhT_lj2Dq994WEbKw7ZsOY28T8HjvGym2FXWPBBd_HdjgFL3rkLz_Ykjtahm24elsz7Ydd093QOrq_Xi-yihMMxJlfK5-9_3Fos-20TFvruI7V8evs1_FyeP-n5IZ_B9ujdz-0dLOtgDCYVz59cD8EcPwOzHe62H2U6-u-gsEJnRMU9xI7vzZcc21DA8AmJhVBH7k3ureV9M3rNhqG59UjtrAQ9AheEDUsh6eHGB2T35KwMxkq6QTfLynsGbvkB--EhjuG6zk2aHM6vunYgH7Bd4BFG0bAHih4vObfg0IEqc_e4LeP1BjhRP0Qw9rQvjTbbU_TG4RRhwsDdj4R_CNJJLvEvz3EEi8pAj2yE6I0Ta_T1iUUDmpZurtRZ09oAwBehrTBujhXjMB3w_1iX3yKZzjDBfw9J07ur3xUEmlOU-Q4Rr-wV0QY70UJ59g-_Nd05JGPJDDqZJMfUNoQcbCHmkDmbAOVErJHdQJ_rtgl5hHcXXB9zPck7adUTVh7hhVDypQripUIWsxbyqTj-f_LJk1QvNJmWigEw9VMz-sa8mARqcTIkP9IuUgbRbbDDmnAJd9V8EgFQvUJrpEN_DGdpA8nxCAXX5zi3xqY4rUkxXZ81EWd_UUVQSwig4ZETZaT_tuiMAHcWNd9zYIi1tkfQD4DxCWpgkgPwXkMBpzzYjgUptP149QvqPsaCdyePOJ4Y8toag6pRfwuU9DhYldvaQ-noZNagTz-BLIiBCAUvRNRvqL4ElC67T0y3DhOkMAZwaRQ7Qk1XIPQkSYghmBCVF86Uq6hTSpnFH3y9oRqnDqCCFok9vmqHGm_Y7cc025p40jVUa5vgDQMVek8DBU2jNvYS5ijHBlK5qiJJTqXMjPzXrJRZTqXWBC2nQg2HNKroMDpILfxFLckYUaEMxHZeFIGJh0oaf9vkeYXQbR7uo2A6BcafAVBGYW0RcELJppdvr2b7H-bL7myBhJDDaa6DrISXKDMgq20quVrnVialJLcyD4tJiU5I8DiHp9q-eLluI1HdsYz0tQh6weTzTynvwusdGeOENPzEvd3HGA4bqswkurKua1aGMprvMUtWWxJ9trpfh3ybajoK7oGKOKCGd8L-EGQG5l8nJsXXz7Of0lEtLSihp2TivHqzHRhMqaT5DnFMEgocFqRpV5M6m6uGMeVPCnEueWft_NmtGcvYhLlN_6zaKPpFGCDYEr2ZXGywUtdBfNDNy0f4s4bTHbynOYuSB937XQXzzaY7EUmkQHxBST3ViKlJtMHi_qjPAvdAcSHA7q1aIDEb8IjtYSPP7Op1ny3a5RUy3DxGYOhukm4qyrS1TJW1Roem7r71aq6am9hT0e3P3ccK9rmOt3Wulpb09seRt1OU_eNFVPHZ-V4iWE3DfcDp2v7aq26VKkIELW2qX6j1ubK5dn56l38V128W1mo0tsNtTZTnZstL5arCwuV5YX55cry0lZJ_VbYnZ9drFbnF-aqS4vzy-VyZa6kGk3Td9xP5Bet-LDd-gcEbU4j?type=png)](https://mermaid.live/edit#pako:eNqlV21P21YU_iuepUqtFFh4SQr5sGoa2z5Nq6Z-WpgsLzHBWmyntrOOYSQI614EGmuFtEpby7pJ-xwooaEQ-Av3_qM9517bcfySjg1E63t973POfc45z7neVBtO01BrasvVO-vKg5VVW8HPrVsKe8Gu-TYbsFP8XeBvxIb8QOG77DWGV-xErvR83fVv32bPWZ__wPr06s4d-eqR0W44lqFZXqvOjoA1ZCdswHt8h_fwNGSDGlk55j_h-VwBbl-YvOI7CmYu2FBhT_lj2Dq994WEbKw7ZsOY28T8HjvGym2FXWPBBd_HdjgFL3rkLz_Ykjtahm24elsz7Ydd093QOrq_Xi-yihMMxJlfK5-9_3Fos-20TFvruI7V8evs1_FyeP-n5IZ_B9ujdz-0dLOtgDCYVz59cD8EcPwOzHe62H2U6-u-gsEJnRMU9xI7vzZcc21DA8AmJhVBH7k3ureV9M3rNhqG59UjtrAQ9AheEDUsh6eHGB2T35KwMxkq6QTfLynsGbvkB--EhjuG6zk2aHM6vunYgH7Bd4BFG0bAHih4vObfg0IEqc_e4LeP1BjhRP0Qw9rQvjTbbU_TG4RRhwsDdj4R_CNJJLvEvz3EEi8pAj2yE6I0Ta_T1iUUDmpZurtRZ09oAwBehrTBujhXjMB3w_1iX3yKZzjDBfw9J07ur3xUEmlOU-Q4Rr-wV0QY70UJ59g-_Nd05JGPJDDqZJMfUNoQcbCHmkDmbAOVErJHdQJ_rtgl5hHcXXB9zPck7adUTVh7hhVDypQripUIWsxbyqTj-f_LJk1QvNJmWigEw9VMz-sa8mARqcTIkP9IuUgbRbbDDmnAJd9V8EgFQvUJrpEN_DGdpA8nxCAXX5zi3xqY4rUkxXZ81EWd_UUVQSwig4ZETZaT_tuiMAHcWNd9zYIi1tkfQD4DxCWpgkgPwXkMBpzzYjgUptP149QvqPsaCdyePOJ4Y8toag6pRfwuU9DhYldvaQ-noZNagTz-BLIiBCAUvRNRvqL4ElC67T0y3DhOkMAZwaRQ7Qk1XIPQkSYghmBCVF86Uq6hTSpnFH3y9oRqnDqCCFok9vmqHGm_Y7cc025p40jVUa5vgDQMVek8DBU2jNvYS5ijHBlK5qiJJTqXMjPzXrJRZTqXWBC2nQg2HNKroMDpILfxFLckYUaEMxHZeFIGJh0oaf9vkeYXQbR7uo2A6BcafAVBGYW0RcELJppdvr2b7H-bL7myBhJDDaa6DrISXKDMgq20quVrnVialJLcyD4tJiU5I8DiHp9q-eLluI1HdsYz0tQh6weTzTynvwusdGeOENPzEvd3HGA4bqswkurKua1aGMprvMUtWWxJ9trpfh3ybajoK7oGKOKCGd8L-EGQG5l8nJsXXz7Of0lEtLSihp2TivHqzHRhMqaT5DnFMEgocFqRpV5M6m6uGMeVPCnEueWft_NmtGcvYhLlN_6zaKPpFGCDYEr2ZXGywUtdBfNDNy0f4s4bTHbynOYuSB937XQXzzaY7EUmkQHxBST3ViKlJtMHi_qjPAvdAcSHA7q1aIDEb8IjtYSPP7Op1ny3a5RUy3DxGYOhukm4qyrS1TJW1Roem7r71aq6am9hT0e3P3ccK9rmOt3Wulpb09seRt1OU_eNFVPHZ-V4iWE3DfcDp2v7aq26VKkIELW2qX6j1ubK5dn56l38V128W1mo0tsNtTZTnZstL5arCwuV5YX55cry0lZJ_VbYnZ9drFbnF-aqS4vzy-VyZa6kGk3Td9xP5Bet-LDd-gcEbU4j)
+
+## Запуск
+
+### Переменные окружения
+
+Создайте `.env` файл с переменными:
+```
+TELEGRAM_TOKEN=your-telegram-bot-token
+REDIS_ADDR=localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+GRPC_SERVICE_ADDR=localhost:50051
+```
+
+### Сборка и запуск через Docker
+
+```sh
+docker build -t energy-sc-bot .
+docker run --env-file .env energy-sc-bot
+```
+
+## gRPC
+
+Для интеграции с RAG-сервисом используется gRPC. Протокол описан в [`proto/rag.proto`](proto/rag.proto). Клиент реализован в [`internal/client/grpc_client.go`](internal/client/grpc_client.go).
 
 ## Структура
 
-- `main.go` — основной файл Telegram-бота
-- `redis.go` — работа с Redis (сохранение и получение истории сообщений)
-- `storage.go` — тут находится интерфейс на случай замены Redis на что-то другое (допустим, PSQL)
+- `cmd/app/main.go` — точка входа, инициализация зависимостей
+- `internal/bot/bot.go` — основной цикл обработки сообщений
+- `internal/bot/handlers.go` — обработчики логики диалога
+- `internal/bot/redis.go` — реализация хранилища в Redis
+- `internal/bot/storage.go` — интерфейс Store (по задумке обеспечивает модулярность и заменяемость)
+- `internal/client/grpc_client.go` — gRPC клиент для RAG-сервиса
 - `Dockerfile` — сборка контейнера
-
-## Пример функций (Redis)
-
-- `SaveMessage` — сохраняет сообщение пользователя в БД
-- `GetHistory` — возвращает историю сообщений в __хронологическом__ порядке, это будем юзать для парса в РАГ
 
 ## Лицензия
 
