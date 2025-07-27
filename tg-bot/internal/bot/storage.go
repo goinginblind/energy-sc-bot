@@ -7,7 +7,7 @@ import "context"
 type Store interface {
 	// Методы для истории (сохранение + ретривал)
 	SaveMessage(ctx context.Context, userID int64, message string) error
-	GetHistory(ctx context.Context, userID int64, count int64) ([]string, error)
+	GetHistory(ctx context.Context, userID int64, count int64) (string, error)
 
 	// Отслеживание юзер стейта
 	SetUserState(ctx context.Context, userID int64, state string) error

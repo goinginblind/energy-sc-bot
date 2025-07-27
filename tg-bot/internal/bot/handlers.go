@@ -17,17 +17,17 @@ import (
 // Handlers содержит зависимости необходимые для обработки сообщений бота.
 // Он включает в себя API бота, хранилище и gRPC клиент для RAG-сервиса.
 type Handlers struct {
-	api           *tgbotapi.BotAPI       // через апи происходит прием и отправка сообщений
-	store         Store                  // редисный интерфейс
-	serviceClient ragpb.RAGServiceClient // gRPC клиент
+	api       *tgbotapi.BotAPI       // через апи происходит прием и отправка сообщений
+	store     Store                  // редисный интерфейс
+	ragClient ragpb.RAGServiceClient // gRPC клиент
 }
 
 // Новые хэндлеры
 func NewHandlers(bot *tgbotapi.BotAPI, store Store, client ragpb.RAGServiceClient) *Handlers {
 	return &Handlers{
-		api:           bot,
-		store:         store,
-		serviceClient: client,
+		api:       bot,
+		store:     store,
+		ragClient: client,
 	}
 }
 
@@ -74,7 +74,7 @@ func (h *Handlers) HandleLoggedInState(ctx context.Context, chatID, userID int64
 			h.api.Send(tgbotapi.NewMessage(chatID, "Ваш PDF-счет генерируется и скоро будет отправлен..."))
 		case "bill_pay":
 			// TODO: оплата? Всм, я естественно этим заниматься не буду
-			// пусть они уже в продакшене это делают у меня ваще нет денег как концепта лол
+			// у меня ваще нет денег как концепта
 			h.api.Send(tgbotapi.NewMessage(chatID, "Перенаправляем на страницу оплаты..."))
 		case "bill_agent":
 			h.store.SetUserState(ctx, userID, StateAwaitingAgentIssuePost)
@@ -138,10 +138,27 @@ func (h *Handlers) HandleGeneralInquiryState(ctx context.Context, chatID, userID
 	}
 
 	// TODO: вызов РАГ ч/з gRPC..
-	log.Printf("STUB: RAG query from user %d: %s", userID, text)
-	ragAnswer := "Это мог бы быть ответ, сгенерированный RAG-моделью, но бот пока так не умеет (я так и не начал gRPC штуку)."
+	var msg tgbotapi.MessageConfig
+	ragLabelStruct, err := h.ragClient.ClassifyQuery(ctx, &ragpb.ClassifyRequest{Query: text})
+	if err != nil {
+		log.Printf("Failed to call RAG service and classify request: %d", err)
+		msg = tgbotapi.NewMessage(chatID, "Извините, я не смог обработать ваш запрос, пожалуйста, попробуйте позже")
+		msg.ReplyMarkup = generalInquiryKeyboard
+		h.api.Send(msg)
+		return
+	}
 
-	msg := tgbotapi.NewMessage(chatID, ragAnswer)
+	userHistory, _ := h.store.GetHistory(ctx, userID, 10)
+	ragAnsStruct, err := h.ragClient.GetAnswerToQuery(ctx, &ragpb.AnswerRequest{Query: text, History: userHistory, Label: ragLabelStruct.Label})
+	if err != nil {
+		log.Printf("Failed to call RAG service and getting a query answer: %d", err)
+		msg = tgbotapi.NewMessage(chatID, "Извините, я не смог обработать ваш запрос, пожалуйста, попробуйте позже")
+		msg.ReplyMarkup = generalInquiryKeyboard
+		h.api.Send(msg)
+		return
+	}
+
+	msg = tgbotapi.NewMessage(chatID, ragAnsStruct.Answer)
 	msg.ReplyMarkup = generalInquiryKeyboard
 	h.api.Send(msg)
 }

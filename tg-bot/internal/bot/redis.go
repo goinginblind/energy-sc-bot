@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -51,17 +52,33 @@ func (r *RedisStore) SaveMessage(ctx context.Context, userID int64, message stri
 }
 
 // Возвращает всю историю сообщений юзера по его телеграм ID в хронологическом порядке
-func (r *RedisStore) GetHistory(ctx context.Context, userID int64, count int64) ([]string, error) {
+func (r *RedisStore) GetHistory(ctx context.Context, userID int64, count int64) (string, error) {
 	key := fmt.Sprintf(userHistoryKey, userID)
 	messages, err := r.client.LRange(ctx, key, 0, count-1).Result()
 	if err != nil {
-		return nil, err
+		return "", err // Return an empty string on error
 	}
-	// Реверс чтоб было в хронологическом порядке
+
+	// If there are no messages, return an empty string immediately.
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	// Реверс для получения хронологического порядка (старые сообщения сначала)
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
-	return messages, nil
+
+	// Use a strings.Builder for efficient string building.
+	var builder strings.Builder
+	for i, msg := range messages {
+		// Format the string as "1. entry" followed by a newline.
+		builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, msg))
+	}
+
+	// Return the complete, formatted string, trimming any trailing whitespace.
+	return strings.TrimSpace(builder.String()), nil
+
 }
 
 // Устанавливает юзер стейт для диалога
