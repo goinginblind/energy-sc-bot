@@ -2,96 +2,51 @@ package bot
 
 import (
 	"context"
-	"log"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/zap"
+
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/bot/common"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/bot/handlers"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/bot/states"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/bot/storage"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/client"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/internal/metrics"
+	"github.com/goinginblind/energy-sc-bot/tg-bot/ragpb"
 )
 
-// Юзер стейты
-const (
-	StateStart                  = ""
-	StateAwaitingLoginInput     = "awaiting_login_input"
-	StateAwaitingOTP            = "awaiting_otp"
-	StateLoggedIn               = "logged_in"
-	StateGeneralInquiry         = "general_inquiry"
-	StateAwaitingAgentIssuePost = "awaiting_agent_issue_post"
-	StateAgentChat              = "agent_chat"
-)
-
-// Объявление глобаль клавиатур (реюзабилити агаа)
-var (
-	// `Приветствие: Общий запрос или Вход?`
-	welcomeKeyboard = tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("🔎 Общий запрос"),
-			tgbotapi.NewKeyboardButton("🔑 Вход"),
-		),
-	)
-
-	// `Основные опции аккаунта`
-	loggedInKeyboard = tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("🧾 Мои счета"),
-			tgbotapi.NewKeyboardButton("🧑‍💼 Связаться с агентом"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("❓ Задать общий вопрос"),
-			tgbotapi.NewKeyboardButton("🚪 Выход"),
-		),
-	)
-
-	// `Инлайн: PDF, Оплата, Агент`
-	billOptionsKeyboard = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📄 Скачать PDF", "bill_pdf"),
-			tgbotapi.NewInlineKeyboardButtonData("💳 Оплатить", "bill_pay"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🧑‍💼 Связаться с оператором", "bill_agent"),
-		),
-	)
-
-	// Инлайн кнопка для выхода из режима РАГ-запросов
-	generalInquiryKeyboard = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🏁 Завершить диалог", "end_general_inquiry"),
-		),
-	)
-
-	// Инлайн кнопка для выхода из чата с агентом
-	agentChatKeyboard = tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🏁 Завершить чат", "end_agent_chat"),
-		),
-	)
-)
-
-// Бот стракт для хранения депенденсиес
+// Bot struct to hold dependencies
 type Bot struct {
-	api      *tgbotapi.BotAPI
-	handlers *Handlers
-	store    Store
+	env *common.HandlerEnv
 }
 
-// Нью бот создает новый экземпляр бота.
-// Он принимает API, обработчики и хранилище в качестве зависимостей
-func New(api *tgbotapi.BotAPI, handlers *Handlers, store Store) *Bot {
+// New creates a new bot instance.
+func New(api common.BotAPI, store storage.Storage, ragClient ragpb.RAGServiceClient, dataClient client.DataClientInterface, logger *zap.Logger) *Bot {
 	return &Bot{
-		api:      api,
-		handlers: handlers,
-		store:    store,
+		env: &common.HandlerEnv{
+			API:        api,
+			Store:      store,
+			RAGClient:  ragClient,
+			DataClient: dataClient,
+			Logger:     logger,
+		},
 	}
 }
 
-// Начинает основной цикл обновлений бота
+// Start begins the main bot update loop.
 func (b *Bot) Start(ctx context.Context) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	updates := b.api.GetUpdatesChan(u)
+	updates := b.env.API.GetUpdatesChan(u)
 
-	log.Printf("Authorized on account %s, starting update loop...", b.api.Self.UserName)
+	self, err := b.env.API.GetMe()
+	if err != nil {
+		b.env.Logger.Fatal("Failed to get bot info", zap.Error(err))
+	}
 
-	// Основной луп всей логики бота
+	b.env.Logger.Info("Authorized on account", zap.String("username", self.UserName), zap.String("status", "starting update loop"))
+
+	// Main loop for all bot logic
 	for update := range updates {
 		if update.Message == nil && update.CallbackQuery == nil {
 			continue
@@ -104,53 +59,72 @@ func (b *Bot) Start(ctx context.Context) {
 		var isCallback bool
 
 		if update.CallbackQuery != nil {
-			// Обработка нажатий на инлайн клавиатуру
+			// Handling inline keyboard button presses
 			isCallback = true
 			callback := update.CallbackQuery
 			chatID = callback.Message.Chat.ID
 			userID = callback.From.ID
 			text = callback.Data
 
-			// Ответ, он нужен чтобы кнопка не переливалась (состояние загрузки)
-			b.api.Request(tgbotapi.NewCallback(callback.ID, ""))
+			// Response is needed to stop the button from glowing (loading state)
+			b.env.API.Request(tgbotapi.NewCallback(callback.ID, ""))
+			b.env.Logger.Info("Callback query received",
+				zap.Int64("chat_id", chatID),
+				zap.Int64("user_id", userID),
+				zap.String("data", text),
+			)
+			metrics.TelegramBotCallbackQueriesReceived.Inc()
 		} else {
-			// Обычные сообщения, без клавиатур == тупа текст
+			// Regular messages, without keyboards == plain text
 			chatID = update.Message.Chat.ID
 			userID = update.Message.From.ID
 			text = update.Message.Text
-			// Каждое текстовое соо логируется
-			b.store.SaveMessage(ctx, userID, text)
+			// Every text message is logged
+			b.env.Store.SaveMessage(ctx, userID, text)
+			b.env.Logger.Info("Message received",
+				zap.Int64("chat_id", chatID),
+				zap.Int64("user_id", userID),
+				zap.String("text", text),
+			)
+			metrics.TelegramBotMessagesReceived.Inc()
 		}
 
-		// Достаем куррент стейт с редиса
-		userState, err := b.store.GetUserState(ctx, userID)
+		// Get the current state from Redis
+		userState, err := b.env.Store.GetUserState(ctx, userID)
 		if err != nil {
-			log.Printf("ERROR getting user state for %d: %v", userID, err)
-			continue
+			b.env.Logger.Error("Error getting user state",
+				zap.Int64("user_id", userID),
+				zap.Error(err),
+			)
+			userState = states.StateStart
 		}
 
-		// Махина для обработки стейта
+		// State handling machine
 		switch userState {
-		case StateStart:
-			b.handlers.HandleStartState(ctx, chatID, userID, text)
-		case StateAwaitingLoginInput:
-			b.handlers.HandleAwaitingLoginInput(ctx, chatID, userID, text)
-		case StateAwaitingOTP:
-			b.handlers.HandleAwaitingOTP(ctx, chatID, userID, text)
-		case StateLoggedIn:
-			b.handlers.HandleLoggedInState(ctx, chatID, userID, text, isCallback)
-		case StateGeneralInquiry:
-			b.handlers.HandleGeneralInquiryState(ctx, chatID, userID, text, isCallback)
-		case StateAwaitingAgentIssuePost:
-			b.handlers.HandleAgentIssue(ctx, chatID, userID, text)
-		case StateAgentChat:
-			b.handlers.HandleAgentChat(ctx, chatID, userID, text, isCallback)
+		case states.StateStart:
+			handlers.HandleStartState(ctx, b.env, chatID, userID, text)
+		case states.StateAwaitingLoginInput:
+			handlers.HandleAwaitingLoginInput(ctx, b.env, chatID, userID, text)
+		case states.StateAwaitingOTP:
+			handlers.HandleAwaitingOTP(ctx, b.env, chatID, userID, text)
+		case states.StateLoggedIn:
+			handlers.HandleLoggedInState(ctx, b.env, chatID, userID, text, isCallback)
+		case states.StateGeneralInquiry:
+			handlers.HandleGeneralInquiryState(ctx, b.env, chatID, userID, text, isCallback)
+		case states.StateAwaitingAgentIssuePost:
+			handlers.HandleAgentIssue(ctx, b.env, chatID, userID, text)
+		case states.StateAgentChat:
+			handlers.HandleAgentChat(ctx, b.env, chatID, userID, text, isCallback)
 		default:
-			// Незнакомый стейт = ошибка, но такого быть не должно
-			b.store.SetUserState(ctx, userID, StateStart)
-			msg := tgbotapi.NewMessage(chatID, "Произошла ошибка. Давайте начнем сначала.")
-			msg.ReplyMarkup = welcomeKeyboard
-			b.api.Send(msg)
+			// Unknown state = error, but this should not happen
+			b.env.Logger.Warn("Unknown user state",
+				zap.Int64("user_id", userID),
+				zap.String("state", userState),
+			)
+			b.env.Store.SetUserState(ctx, userID, states.StateStart)
+			msg := tgbotapi.NewMessage(chatID, "An error occurred. Let's start over.")
+			msg.ReplyMarkup = handlers.WelcomeKeyboard
+			b.env.API.Send(msg)
 		}
 	}
 }

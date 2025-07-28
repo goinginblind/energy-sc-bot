@@ -9,7 +9,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Новый клиент, аргумент - адрес gRPC сервиса
+// New creates a new gRPC client.
+// The argument is the address of the gRPC service.
 func New(grpcAddr string) ragpb.RAGServiceClient {
 	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
