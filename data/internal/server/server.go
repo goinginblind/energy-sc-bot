@@ -5,27 +5,50 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"strconv"
+
+	"github.com/goinginblind/energy-sc-bot/data/internal/db"
 	"github.com/gorilla/mux"
 )
 
 type Server struct {
-	DB *sql.DB
+	DB *db.Queries
 }
 
-func NewServer(db *sql.DB) *Server {
-	return &Server{DB: db}
+func NewServer(database *sql.DB) *Server {
+	return &Server{DB: db.New(database)}
+}
+
+func (s *Server) GetBillsByUserID(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	bills, err := s.DB.GetBillsByUserID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if bills == nil {
+		bills = []db.Bill{}
+	}
+
+	json.NewEncoder(w).Encode(bills)
 }
 
 func (s *Server) GetUserByPhone(w http.ResponseWriter, r *http.Request) {
 	phone := mux.Vars(r)["phone"]
-	row := s.DB.QueryRow("SELECT telegram_id, phone, email FROM users WHERE phone = $1 LIMIT 1", phone)
-	var user struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
-	if err := row.Scan(&user.TelegramID, &user.Phone, &user.Email); err != nil {
-		w.WriteHeader(http.StatusNotFound)
+	user, err := s.DB.GetUserByPhone(r.Context(), sql.NullString{String: phone, Valid: true})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(user)
@@ -33,36 +56,26 @@ func (s *Server) GetUserByPhone(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) GetUserByEmail(w http.ResponseWriter, r *http.Request) {
 	email := mux.Vars(r)["email"]
-	row := s.DB.QueryRow("SELECT telegram_id, phone, email FROM users WHERE email = $1 LIMIT 1", email)
-	var user struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
-	if err := row.Scan(&user.TelegramID, &user.Phone, &user.Email); err != nil {
-		w.WriteHeader(http.StatusNotFound)
+	user, err := s.DB.GetUserByEmail(r.Context(), sql.NullString{String: email, Valid: true})
+	if err != nil {
+		if err == sql.ErrNoRows {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(user)
 }
 
 func (s *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
+	var req db.CreateUserParams
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	row := s.DB.QueryRow("INSERT INTO users (telegram_id, phone, email) VALUES ($1, $2, $3) RETURNING telegram_id, phone, email", req.TelegramID, req.Phone, req.Email)
-	var user struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
-	if err := row.Scan(&user.TelegramID, &user.Phone, &user.Email); err != nil {
+	user, err := s.DB.CreateUser(r.Context(), req)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -70,35 +83,27 @@ func (s *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) UpsertUserByContact(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
+	var req db.UpsertUserByContactParams
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	row := s.DB.QueryRow(`INSERT INTO users (telegram_id, phone, email) VALUES ($1, $2, $3)
-		ON CONFLICT (phone, email) DO UPDATE
-		SET telegram_id = COALESCE(EXCLUDED.telegram_id, users.telegram_id),
-		    phone = COALESCE(EXCLUDED.phone, users.phone),
-		    email = COALESCE(EXCLUDED.email, users.email)
-		RETURNING telegram_id, phone, email`, req.TelegramID, req.Phone, req.Email)
-	var user struct {
-		TelegramID int64  `json:"telegram_id"`
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-	}
-	if err := row.Scan(&user.TelegramID, &user.Phone, &user.Email); err != nil {
+	user, err := s.DB.UpsertUserByContact(r.Context(), req)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(user)
 }
 
+func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
 func (s *Server) Router() http.Handler {
 	r := mux.NewRouter()
+	r.HandleFunc("/health", s.HealthCheck).Methods("GET")
+	r.HandleFunc("/users/{id}/bills", s.GetBillsByUserID).Methods("GET")
 	r.HandleFunc("/user/phone/{phone}", s.GetUserByPhone).Methods("GET")
 	r.HandleFunc("/user/email/{email}", s.GetUserByEmail).Methods("GET")
 	r.HandleFunc("/user", s.CreateUser).Methods("POST")
