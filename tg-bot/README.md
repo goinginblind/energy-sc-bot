@@ -1,63 +1,69 @@
-# Go Telegram Bot
+# TG Bot Service (Go Telegram Bot)
 
-Микросервис Telegram-бота для Energy SC Bot.
+This service is the main Telegram bot interface for the Energy SC Bot project. It handles user interactions, manages dialogue states, stores message history in Redis, and communicates with the RAG (Retrieval-Augmented Generation) service via gRPC and the Personal Data API via HTTP. It also includes structured logging with Zap and exposes Prometheus metrics for observability.
 
-## Описание
+## Technologies Used
 
-Этот сервис:
-- Сохраняет последние 10 сообщений каждого пользователя в Redis
-- Управляет логикой диалога через юзер стейты
-- Поддерживает вход по OTP (пока очень так себе)
-- Интегрируется с внешним RAG-сервисом через gRPC (см. proto/rag.proto)
-- Легко расширяется для других хранилищ (через интерфейс Store)
+*   **Go:** The primary language for the bot.
+*   **`go-telegram-bot-api/telegram-bot-api/v5`:** For interacting with the Telegram Bot API.
+*   **Redis:** Used for storing user session states and message history.
+*   **gRPC:** For communication with the RAG service.
+*   **HTTP Client:** For communication with the Personal Data API.
+*   **`go.uber.org/zap`:** For structured logging.
+*   **`prometheus/client_golang`:** For exposing Prometheus metrics.
 
-## TODO
-- [x] Redis логер юзер стейта и юзер истории сообщений
-- [ ] Dockerfile (multi-stage)
-- [x] Поддержка `/start`
-- [x] Обработка Физлица/Юрлица (достаем из ЛК, меняем промпт в RAG)
-- [x] Воркфлоу текстовых сообщений и кнопок
-- [x] gRPC клиент для RAG-сервиса (но нужно в хэндлерах самого бота наладить парсинг)
-- [ ] Структурированный логгер (Zap вместо стандартного)
-- [ ] REST API для интеграции с сервисом ЛК (то есть ещё этот клиент нужно добить)
+## Setup
 
-## Воркфлоу работы (немного не так по факту, но близко):
-[![](https://mermaid.ink/img/pako:eNqlV21P21YU_iuepUqtFFh4SQr5sGoa2z5Nq6Z-WpgsLzHBWmyntrOOYSQI614EGmuFtEpby7pJ-xwooaEQ-Av3_qM9517bcfySjg1E63t973POfc45z7neVBtO01BrasvVO-vKg5VVW8HPrVsKe8Gu-TYbsFP8XeBvxIb8QOG77DWGV-xErvR83fVv32bPWZ__wPr06s4d-eqR0W44lqFZXqvOjoA1ZCdswHt8h_fwNGSDGlk55j_h-VwBbl-YvOI7CmYu2FBhT_lj2Dq994WEbKw7ZsOY28T8HjvGym2FXWPBBd_HdjgFL3rkLz_Ykjtahm24elsz7Ydd093QOrq_Xi-yihMMxJlfK5-9_3Fos-20TFvruI7V8evs1_FyeP-n5IZ_B9ujdz-0dLOtgDCYVz59cD8EcPwOzHe62H2U6-u-gsEJnRMU9xI7vzZcc21DA8AmJhVBH7k3ureV9M3rNhqG59UjtrAQ9AheEDUsh6eHGB2T35KwMxkq6QTfLynsGbvkB--EhjuG6zk2aHM6vunYgH7Bd4BFG0bAHih4vObfg0IEqc_e4LeP1BjhRP0Qw9rQvjTbbU_TG4RRhwsDdj4R_CNJJLvEvz3EEi8pAj2yE6I0Ta_T1iUUDmpZurtRZ09oAwBehrTBujhXjMB3w_1iX3yKZzjDBfw9J07ur3xUEmlOU-Q4Rr-wV0QY70UJ59g-_Nd05JGPJDDqZJMfUNoQcbCHmkDmbAOVErJHdQJ_rtgl5hHcXXB9zPck7adUTVh7hhVDypQripUIWsxbyqTj-f_LJk1QvNJmWigEw9VMz-sa8mARqcTIkP9IuUgbRbbDDmnAJd9V8EgFQvUJrpEN_DGdpA8nxCAXX5zi3xqY4rUkxXZ81EWd_UUVQSwig4ZETZaT_tuiMAHcWNd9zYIi1tkfQD4DxCWpgkgPwXkMBpzzYjgUptP149QvqPsaCdyePOJ4Y8toag6pRfwuU9DhYldvaQ-noZNagTz-BLIiBCAUvRNRvqL4ElC67T0y3DhOkMAZwaRQ7Qk1XIPQkSYghmBCVF86Uq6hTSpnFH3y9oRqnDqCCFok9vmqHGm_Y7cc025p40jVUa5vgDQMVek8DBU2jNvYS5ijHBlK5qiJJTqXMjPzXrJRZTqXWBC2nQg2HNKroMDpILfxFLckYUaEMxHZeFIGJh0oaf9vkeYXQbR7uo2A6BcafAVBGYW0RcELJppdvr2b7H-bL7myBhJDDaa6DrISXKDMgq20quVrnVialJLcyD4tJiU5I8DiHp9q-eLluI1HdsYz0tQh6weTzTynvwusdGeOENPzEvd3HGA4bqswkurKua1aGMprvMUtWWxJ9trpfh3ybajoK7oGKOKCGd8L-EGQG5l8nJsXXz7Of0lEtLSihp2TivHqzHRhMqaT5DnFMEgocFqRpV5M6m6uGMeVPCnEueWft_NmtGcvYhLlN_6zaKPpFGCDYEr2ZXGywUtdBfNDNy0f4s4bTHbynOYuSB937XQXzzaY7EUmkQHxBST3ViKlJtMHi_qjPAvdAcSHA7q1aIDEb8IjtYSPP7Op1ny3a5RUy3DxGYOhukm4qyrS1TJW1Roem7r71aq6am9hT0e3P3ccK9rmOt3Wulpb09seRt1OU_eNFVPHZ-V4iWE3DfcDp2v7aq26VKkIELW2qX6j1ubK5dn56l38V128W1mo0tsNtTZTnZstL5arCwuV5YX55cry0lZJ_VbYnZ9drFbnF-aqS4vzy-VyZa6kGk3Td9xP5Bet-LDd-gcEbU4j?type=png)](https://mermaid.live/edit#pako:eNqlV21P21YU_iuepUqtFFh4SQr5sGoa2z5Nq6Z-WpgsLzHBWmyntrOOYSQI614EGmuFtEpby7pJ-xwooaEQ-Av3_qM9517bcfySjg1E63t973POfc45z7neVBtO01BrasvVO-vKg5VVW8HPrVsKe8Gu-TYbsFP8XeBvxIb8QOG77DWGV-xErvR83fVv32bPWZ__wPr06s4d-eqR0W44lqFZXqvOjoA1ZCdswHt8h_fwNGSDGlk55j_h-VwBbl-YvOI7CmYu2FBhT_lj2Dq994WEbKw7ZsOY28T8HjvGym2FXWPBBd_HdjgFL3rkLz_Ykjtahm24elsz7Ydd093QOrq_Xi-yihMMxJlfK5-9_3Fos-20TFvruI7V8evs1_FyeP-n5IZ_B9ujdz-0dLOtgDCYVz59cD8EcPwOzHe62H2U6-u-gsEJnRMU9xI7vzZcc21DA8AmJhVBH7k3ureV9M3rNhqG59UjtrAQ9AheEDUsh6eHGB2T35KwMxkq6QTfLynsGbvkB--EhjuG6zk2aHM6vunYgH7Bd4BFG0bAHih4vObfg0IEqc_e4LeP1BjhRP0Qw9rQvjTbbU_TG4RRhwsDdj4R_CNJJLvEvz3EEi8pAj2yE6I0Ta_T1iUUDmpZurtRZ09oAwBehrTBujhXjMB3w_1iX3yKZzjDBfw9J07ur3xUEmlOU-Q4Rr-wV0QY70UJ59g-_Nd05JGPJDDqZJMfUNoQcbCHmkDmbAOVErJHdQJ_rtgl5hHcXXB9zPck7adUTVh7hhVDypQripUIWsxbyqTj-f_LJk1QvNJmWigEw9VMz-sa8mARqcTIkP9IuUgbRbbDDmnAJd9V8EgFQvUJrpEN_DGdpA8nxCAXX5zi3xqY4rUkxXZ81EWd_UUVQSwig4ZETZaT_tuiMAHcWNd9zYIi1tkfQD4DxCWpgkgPwXkMBpzzYjgUptP149QvqPsaCdyePOJ4Y8toag6pRfwuU9DhYldvaQ-noZNagTz-BLIiBCAUvRNRvqL4ElC67T0y3DhOkMAZwaRQ7Qk1XIPQkSYghmBCVF86Uq6hTSpnFH3y9oRqnDqCCFok9vmqHGm_Y7cc025p40jVUa5vgDQMVek8DBU2jNvYS5ijHBlK5qiJJTqXMjPzXrJRZTqXWBC2nQg2HNKroMDpILfxFLckYUaEMxHZeFIGJh0oaf9vkeYXQbR7uo2A6BcafAVBGYW0RcELJppdvr2b7H-bL7myBhJDDaa6DrISXKDMgq20quVrnVialJLcyD4tJiU5I8DiHp9q-eLluI1HdsYz0tQh6weTzTynvwusdGeOENPzEvd3HGA4bqswkurKua1aGMprvMUtWWxJ9trpfh3ybajoK7oGKOKCGd8L-EGQG5l8nJsXXz7Of0lEtLSihp2TivHqzHRhMqaT5DnFMEgocFqRpV5M6m6uGMeVPCnEueWft_NmtGcvYhLlN_6zaKPpFGCDYEr2ZXGywUtdBfNDNy0f4s4bTHbynOYuSB937XQXzzaY7EUmkQHxBST3ViKlJtMHi_qjPAvdAcSHA7q1aIDEb8IjtYSPP7Op1ny3a5RUy3DxGYOhukm4qyrS1TJW1Roem7r71aq6am9hT0e3P3ccK9rmOt3Wulpb09seRt1OU_eNFVPHZ-V4iWE3DfcDp2v7aq26VKkIELW2qX6j1ubK5dn56l38V128W1mo0tsNtTZTnZstL5arCwuV5YX55cry0lZJ_VbYnZ9drFbnF-aqS4vzy-VyZa6kGk3Td9xP5Bet-LDd-gcEbU4j)
+### Environment Variables
 
-## Запуск
+Create a `.env` file in the `tg-bot/` directory with the following variables:
 
-### Переменные окружения
-
-Создайте `.env` файл с переменными:
-```
+```env
 TELEGRAM_TOKEN=your-telegram-bot-token
-REDIS_ADDR=localhost:6379
+REDIS_ADDR=redis:6379
 REDIS_PASSWORD=
 REDIS_DB=0
-GRPC_SERVICE_ADDR=localhost:50051
+GRPC_SERVICE_ADDR=rag-service:50051
+PERSONAL_DATA_API_URL=http://data:8080
+METRICS_PORT=8081
 ```
 
-### Сборка и запуск через Docker
+**Note:** When running with Docker Compose, these values will be provided by the `docker-compose.yml` configuration.
 
-```sh
-docker build -t energy-sc-bot .
-docker run --env-file .env energy-sc-bot
+### Dependencies
+
+Ensure Redis, the RAG service, and the Data service are running and accessible.
+
+## Build and Run Locally
+
+1.  **Navigate to the service directory:**
+    ```bash
+    cd tg-bot
+    ```
+2.  **Download Go modules:**
+    ```bash
+    go mod tidy
+    ```
+3.  **Run the application:**
+    ```bash
+    go run cmd/app/main.go
+    ```
+    The bot will start polling for updates from Telegram. A metrics endpoint will be available at `http://localhost:8081/metrics`.
+
+## Key Functionalities
+
+*   **User Authentication:** Handles login flow with OTP (One-Time Password).
+*   **Dialogue Management:** Manages user states (e.g., `StateStart`, `StateAwaitingLoginInput`, `StateGeneralInquiry`).
+*   **Message History:** Stores recent user messages in Redis for context.
+*   **General Inquiry:** Routes user questions to the RAG service for AI-powered answers.
+*   **Personal Data Access:** Fetches user-specific data (like bills) from the Data service to enrich RAG queries.
+*   **Observability:** Integrates Zap for structured logging and Prometheus for metrics collection.
+
+## Testing
+
+To run unit tests for the Telegram bot service:
+
+```bash
+cd tg-bot
+go test ./...
 ```
-
-## gRPC
-
-Для интеграции с RAG-сервисом используется gRPC. Протокол описан в [`proto/rag.proto`](proto/rag.proto). Клиент реализован в [`internal/client/grpc_client.go`](internal/client/grpc_client.go).
-
-## Структура
-
-- `cmd/app/main.go` — точка входа, инициализация зависимостей
-- `internal/bot/bot.go` — основной цикл обработки сообщений
-- `internal/bot/handlers.go` — обработчики логики диалога
-- `internal/bot/redis.go` — реализация хранилища в Redis
-- `internal/bot/storage.go` — интерфейс Store (по задумке обеспечивает модулярность и заменяемость)
-- `internal/client/grpc_client.go` — gRPC клиент для RAG-сервиса
-- `Dockerfile` — сборка контейнера
-
-## Лицензия
-
-MIT
