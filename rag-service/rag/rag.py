@@ -1,8 +1,8 @@
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.chat_models import ChatOpenAI
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.document_loaders import UnstructuredWordDocumentLoader
+from langchain_community.document_loaders import UnstructuredWordDocumentLoader
 from langchain_core.runnables import RunnablePassthrough
 from langchain.prompts import ChatPromptTemplate
 from openai import OpenAI
@@ -70,7 +70,7 @@ class RAGForChatBot():
     print(type(args_for_template), type(template), type(self.llm))
     return chain.invoke(query)
 
-def make_rag(db_path='docs', make_db=False, documents=None, key=''):
+def make_rag(db_path, make_db=False, key=''):
   llm = ChatOpenAI(openai_api_key=key, model_name="gpt-4o-mini", temperature=0)
   embedding = OpenAIEmbeddings(api_key=key, model="text-embedding-3-small")
   splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -83,10 +83,10 @@ def make_rag(db_path='docs', make_db=False, documents=None, key=''):
     for i in range(5, len(chunks), batch_size):
       batch = chunks[i:i+batch_size]
       vectorstore.add_documents(batch)
-    vectorstore.save_local('docs')
+    vectorstore.save_local(db_path)
   else:
     print(datetime.now())
-    vectorstore = FAISS.load_local('rag-service/rag/docs', embedding, allow_dangerous_deserialization=True)
+    vectorstore = FAISS.load_local(db_path, embedding)
   return RAGForChatBot(documents='documents.docx', llm=llm, embedding_model=embedding, prompt_template=None, splitter=splitter, vectorstore=vectorstore)
 
 
@@ -95,74 +95,27 @@ def get_answer_to_query(query, system_prompt, rag_model):
     return answer.content
 
 
-def make_prompt(face='физических лиц', history='Отсутствует', acc_data='', label='4'):
-    prefix = f"""
-    Ты — интеллектуальный помощник службы поддержки, обученный на внутренней документации тепловой электростанции (ТЭС), нормативно-правовых актах, технических регламентах, пользовательских инструкциях и архиве обращений.
+def make_prompt(face='физических лиц', history='Отсутствует', acc_data='', label='4', prompts_path='rag-service/rag/prompts'):
+    with open(f'{prompts_path}/base.txt', 'r') as f:
+        prefix = f.read()
 
-    Твоя задача — помогать пользователям с вопросами, связанными с функционированием, обслуживанием, правовым регулированием и пользовательскими сервисами ТЭС, используя только те данные, которые предоставлены в документах ниже.
+    try:
+        with open(f'{prompts_path}/{label[0]}.txt', 'r') as f:
+            prefix += f.read()
+    except FileNotFoundError:
+        pass
 
-    В этом запросе указано, что он относится к следующему типу: {label}.
-    Следуй следующим правилам:
-   1. **Используй только предоставленную информацию.** Не выдумывай факты и не делай догадок, если данные отсутствуют.
-   2. **Если ответ очевиден в контексте — дай его полно и точно.** Если в контексте присутствует частичная информация — сделай взвешенное обобщение с указанием возможных ограничений.
-   3. **Если информация отсутствует — прямо скажи, что в документах ничего не указано.**
-   4. **При наличии нормативных ссылок (дат, номеров, законов) — приводи их дословно.**
-   5. **Стиль ответа:** вежливый, нейтральный, понятный. Пиши как сотрудник службы поддержки, обращайся на "Вы".
-   6. **В документах есть информация как для физических, так и для юридических лиц. Тебе нужно тщательно вычленить информацию только для {face}. Не добавляй никакой информации о других лиц, если этого явно не указано в запросе пользователя.
-    Отвечай только для {face}.
-    Важно! .
-    """
+    with open(f'{prompts_path}/context.txt', 'r') as f:
+        context = f.read()
 
-    if label == "1. Жалоба пользователя":
-        prefix += """
-        Используй извинительный тон. Вырази сожаление и, если возможно, предложи решение. Важно! Если решение не найдено — сообщи, что специалисты займутся проблемой.
-        """
-    elif label == "2. Запрос на выдачу информации из личного кабинета":
-        prefix += """
-        Посмотри на данные из личного кабинета, указанные ниже. Сообщи пользователю нужную информацию. Если данных нет — скажи об этом с сожалением.
-        """
-    elif label == "3. Запрос на отправку информации в личный кабинет":
-        prefix += """
-        Сообщи, что пользователь может отправить данные в личный кабинет на сайте или через кнопку "Загрузить данные или показатели" в чате.
-        """
-    elif label == "5. Вызов оператора":
-        prefix += """
-        Используй доброжелательный, радостный тон. Сообщи, что оператор скоро подключится в чат.
-        """
-    elif label == "6. Бессмысленный вопрос":
-        prefix += '''
-        Максимально вежливо вырази свое сожаление о том, что ты не понял вопроса и попроси
-        пользователя переформулировать вопрос. Больше ничего не выводи и не пиши.
-        '''
-        
-    context = """
-    Вот выдержки из внутренних документов, которые необходимо использовать:
-    {docs}
-    """
+    with open(f'{prompts_path}/lk_context.txt', 'r') as f:
+        lk_context = f.read()
 
-    lk_context = f"""
-    Также пользователь может интересоваться своими данными из личного кабинета. Они включают в себя историю потребления горячей воды, электроэнергии и отопления, баланс, номер лицевого счёта (для физических лиц) или ИНН (для юридических лиц). Если баланс отрицательный — это долг. Данные:
-    {acc_data}
-    """
+    with open(f'{prompts_path}/history_block.txt', 'r') as f:
+        history_block = f.read()
 
-    history_block = f"""
-    История предыдущих обращений:
-    {history}
-    Учитывай взаимосвязь между предыдущими и текущим запросом. Например, если пользователь спрашивает: "Сколько стоит куб воды?", а затем: "А электроэнергии?", то второй ответ должен учитывать первый.
-    """
-
-    postfix = """
-    Сформулируй краткий, точный и полезный ответ. Если требуется — перечисли шаги. Если пользователь расстроен — прояви эмпатию, но оставайся деловым.
-
-    Отвечай на русском языке. Не добавляй ничего, что не подтверждено в документах.
-    Формулы передавай в читаемом виде, например:
-    Расход = Объём / Время * Тариф
-
-    Вопрос пользователя:
-    {query}
-
-    Ответ:
-    """
+    with open(f'{prompts_path}/postfix.txt', 'r') as f:
+        postfix = f.read()
 
     template = prefix + context + lk_context + history_block + postfix
     return ChatPromptTemplate.from_template(template)

@@ -1,4 +1,6 @@
 docs
+.venv
+.pytest_cache
 index.faiss
 index.pkl
 __pycache__

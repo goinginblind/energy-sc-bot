@@ -1,23 +1,29 @@
 FROM python:3.12-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies (for FAISS & Unstructured)
-RUN apt-get update && apt-get install -y \
+# Create a non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Install system dependencies required for libraries like FAISS
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libopenblas-dev \
-    libgomp1 \
-    git \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY rag/requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt \
-    && pip install flask grpcio grpcio-tools
+# Copy requirements and install python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy entire RAG codebase
-COPY rag/ ./
-COPY rag-service/ ./rag-service/
+# Copy the application code
+COPY . .
 
+# Change ownership of the app directory
+RUN chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+USER appuser
+
+# Expose port and run
 EXPOSE 50051
-CMD ["python", "rag-service/main.py"]
+CMD ["python", "main.py"]

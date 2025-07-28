@@ -1,3 +1,4 @@
+import os
 import grpc
 from concurrent import futures
 import server.ragpb.rag_pb2 as rag_pb2
@@ -6,11 +7,12 @@ import server.ragpb.rag_pb2_grpc as rag_pb2_grpc
 from rag.rag import make_rag, make_prompt, get_answer_to_query, classifier, human_query_to_gpt_prompt
 
 class RAGServicer(rag_pb2_grpc.RAGServiceServicer):
-    def __init__(self, key):
-        self.rag_model = make_rag(key=key)
+    def __init__(self, key, db_path, prompts_path):
+        self.rag_model = make_rag(key=key, db_path=db_path)
+        self.prompts_path = prompts_path
 
     def GetAnswerToQuery(self, request, context):
-        prompt = make_prompt(face=request.face, history=request.history, acc_data=request.acc_data, label=request.label)
+        prompt = make_prompt(face=request.face, history=request.history, acc_data=request.acc_data, label=request.label, prompts_path=self.prompts_path)
         answer = get_answer_to_query(request.query, prompt, self.rag_model)
         return rag_pb2.AnswerResponse(answer=answer)
 
@@ -23,8 +25,13 @@ class RAGServicer(rag_pb2_grpc.RAGServiceServicer):
         return rag_pb2.HumanQueryResponse(rephrased_query=result)
 
 def serve():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+    db_path = os.getenv("FAISS_DB_PATH", "rag-service/rag/docs")
+    prompts_path = os.getenv("PROMPTS_PATH", "rag-service/rag/prompts")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    rag_pb2_grpc.add_RAGServiceServicer_to_server(RAGServicer(key='YOUR_OPENAI_KEY'), server)
+    rag_pb2_grpc.add_RAGServiceServicer_to_server(RAGServicer(key=api_key, db_path=db_path, prompts_path=prompts_path), server)
     server.add_insecure_port('[::]:50051')
     server.start()
     print("RAG server running on port 50051")
