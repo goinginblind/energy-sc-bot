@@ -1,22 +1,33 @@
-# Build stage
+# 1. Build stage
 FROM golang:1.24-alpine AS builder
+
 WORKDIR /app
 
-RUN apk add --no-cache git
-
+# Copy go module files
 COPY go.mod go.sum ./
+
+# Download dependencies
 RUN go mod download
 
+# Copy source code
 COPY . .
-RUN go build -o bot
 
-# Final stage
+# Build the application
+RUN CGO_ENABLED=0 go build -o /app/main -ldflags="-s -w" ./cmd/app/main.go
+
+# 2. Final stage
 FROM alpine:latest
+
+# Add non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates
+# Copy binary from builder stage
+COPY --from=builder /app/main .
 
-COPY --from=builder /app/bot .
+# Set user
+USER appuser
 
-EXPOSE 8080
-ENTRYPOINT ["./bot"]
+# Run the bot
+CMD ["./main"]
